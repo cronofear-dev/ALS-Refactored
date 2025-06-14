@@ -1110,11 +1110,6 @@ void AAlsCharacter::NotifyLocomotionActionChanged(const FGameplayTag& PreviousLo
 	OnLocomotionActionChanged(PreviousLocomotionAction);
 }
 
-FRotator AAlsCharacter::GetViewRotation() const
-{
-	return ViewState.Rotation;
-}
-
 void AAlsCharacter::SetInputDirection(FVector NewInputDirection)
 {
 	NewInputDirection = NewInputDirection.GetSafeNormal();
@@ -1135,6 +1130,11 @@ void AAlsCharacter::RefreshInput(const float DeltaTime)
 	{
 		LocomotionState.InputYawAngle = UE_REAL_TO_FLOAT(UAlsVector::DirectionToAngleXY(InputDirection));
 	}
+}
+
+FRotator AAlsCharacter::BP_GetViewRotation_Implementation() const
+{
+    return ViewState.Rotation;
 }
 
 void AAlsCharacter::SetReplicatedViewRotation(const FRotator& NewViewRotation, const bool bSendRpc)

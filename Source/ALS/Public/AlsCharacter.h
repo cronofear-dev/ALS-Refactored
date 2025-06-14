@@ -367,7 +367,13 @@ protected:
 	// View
 
 public:
-	virtual FRotator GetViewRotation() const override;
+	virtual FRotator GetViewRotation() const override
+	{
+	    return BP_GetViewRotation();
+	}
+
+    UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Als Character")
+    FRotator BP_GetViewRotation() const;
 
 private:
 	void SetReplicatedViewRotation(const FRotator& NewViewRotation, bool bSendRpc);
