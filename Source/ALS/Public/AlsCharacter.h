@@ -439,6 +439,7 @@ protected:
 
 	float CalculateGroundedMovingRotationInterpolationSpeed() const;
 
+    UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "ALS|Character")
 	void RefreshGroundedAimingRotation(float DeltaTime);
 
 	bool ConstrainAimingRotation(FRotator& ActorRotation, float DeltaTime, bool bApplySecondaryConstraint = false);

@@ -1672,7 +1672,7 @@ bool AAlsCharacter::RefreshCustomGroundedNotMovingRotation(const float DeltaTime
 	return false;
 }
 
-void AAlsCharacter::RefreshGroundedAimingRotation(const float DeltaTime)
+void AAlsCharacter::RefreshGroundedAimingRotation_Implementation(const float DeltaTime)
 {
 	auto NewActorRotation{GetActorRotation()};
 
