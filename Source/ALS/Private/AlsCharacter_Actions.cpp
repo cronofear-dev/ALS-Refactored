@@ -474,7 +474,7 @@ void AAlsCharacter::StartMantlingImplementation(const FAlsMantlingParameters& Pa
 	if (FMath::IsNearlyZero(TargetAnimationLocation.Z))
 	{
 		UE_LOG(LogAls, Warning, TEXT("Can't start mantling! The %s animation montage has incorrect root motion,")
-		       TEXT(" the final vertical location of the character must be non-zero!"), *MantlingSettings->Montage->GetName());
+		       TEXT(" the final vertical location of the character must be non-zero!"), *MantlingSettings->Montage->GetName())
 		return;
 	}
 
@@ -755,6 +755,10 @@ void AAlsCharacter::StartRagdollingImplementation()
 	GetMesh()->SetCollisionObjectType(ECC_PhysicsBody);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	GetMesh()->SetSimulatePhysics(true);
+
+	// This is required for the ragdoll to behave properly when any body instance is set to simulated in a physics asset.
+	// TODO Check the need for this in future engine versions.
+	GetMesh()->ResetAllBodiesSimulatePhysics();
 
 	const auto* PelvisBody{GetMesh()->GetBodyInstance(UAlsConstants::PelvisBoneName())};
 	FVector PelvisLocation;
@@ -1074,7 +1078,7 @@ void AAlsCharacter::StopRagdollingImplementation()
 
 		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]
 		{
-			ALS_ENSURE(!GetMesh()->bEnableUpdateRateOptimizations);
+			ALS_ENSURE(!GetMesh()->bEnableUpdateRateOptimizations); // NOLINT(clang-diagnostic-unused-value)
 			GetMesh()->bEnableUpdateRateOptimizations = true;
 		}));
 	}
