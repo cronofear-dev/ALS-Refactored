@@ -17,7 +17,8 @@ FAlsRigUnit_ApplyFootOffsetRotation_Execute()
 	const auto* Hierarchy{ExecuteContext.Hierarchy};
 
 	if (!IsValid(Hierarchy) ||
-	    !CachedCalfItem.UpdateCache(CalfItem, Hierarchy))
+	    !CachedCalfItem.UpdateCache(CalfItem, Hierarchy) ||
+	    !CachedFootItem.UpdateCache(FootItem, Hierarchy))
 	{
 		return;
 	}
@@ -27,83 +28,71 @@ FAlsRigUnit_ApplyFootOffsetRotation_Execute()
 		bInitialized = true;
 
 		OffsetNormal = FootOffsetNormal;
+
+		// Get the foot initial rotation and convert it to the calf space.
+
+		const auto CalfInitialRotation{Hierarchy->GetInitialGlobalTransform(CachedCalfItem).GetRotation()};
+		const auto FootInitialRotation{Hierarchy->GetInitialGlobalTransform(CachedFootItem).GetRotation()};
+
+		FootInitialRotationCalfSpace = CalfInitialRotation.Inverse() * FootInitialRotation;
 	}
 
-	OffsetNormal = UAlsMath::ExponentialDecay(OffsetNormal, FootOffsetNormal,
-	                                          UE_REAL_TO_FLOAT(ExecuteContext.GetDeltaTime()), OffsetInterpolationSpeed);
+	OffsetNormal = UAlsMath::DamperExact(OffsetNormal, FootOffsetNormal,
+	                                     UE_REAL_TO_FLOAT(ExecuteContext.GetDeltaTime()), OffsetInterpolationHalfLife);
 
-	const auto OffsetRotation{FQuat::FindBetweenVectors(FVector::ZAxisVector, OffsetNormal)};
+	const auto OffsetRotation{FQuat::FindBetweenVectors(FVector::UpVector, OffsetNormal)};
 
-	// Convert global offset to local offset.
+	// Transform the current foot rotation and the target foot rotation with applied foot offset to the calf space.
 
 	const auto CalfRotation{Hierarchy->GetGlobalTransform(CachedCalfItem).GetRotation()};
+	FootRotation = Hierarchy->GetGlobalTransform(CachedFootItem).GetRotation();
 
-	const auto InitialLocalRotation{CalfRotation.Inverse() * FootTargetRotation * LimitOffset};
+	const auto CurrentRotationCalfSpace{
+		(CalfRotation.Inverse() * FootRotation * FootInitialRotationCalfSpace.Inverse()).Rotator()
+	};
 
-	const auto TargetRotation{OffsetRotation * FootTargetRotation};
-	const auto TargetLocalRotation{CalfRotation.Inverse() * TargetRotation * LimitOffset};
+	const auto TargetRotationCalfSpace{
+		(CalfRotation.Inverse() * (OffsetRotation * FootTargetRotation) * FootInitialRotationCalfSpace.Inverse()).Rotator()
+	};
 
-	// We intentionally use FVector::XAxisVector here so that the twist is stored in the
-	// X component of the quaternion, and the swing is stored in the Y and Z components.
+	// Apply limits.
 
-	FQuat InitialSwing;
-	FQuat InitialTwist;
-	InitialLocalRotation.ToSwingTwist(FVector::XAxisVector, InitialSwing, InitialTwist);
-
-	FQuat TargetSwing;
-	FQuat TargetTwist;
-	TargetLocalRotation.ToSwingTwist(FVector::XAxisVector, TargetSwing, TargetTwist);
-
-	// Limit swing.
-
-	static const auto ApplyConstraint{
-		[](const float Initial, const float Target, const float LimitAngle)
+	static const auto ConstraintTargetAngle{
+		[](const float CurrentAngle, const float TargetAngle, const FFloatInterval& LimitAngle)
 		{
-			const auto Limit{FMath::Sin(FMath::DegreesToRadians(LimitAngle) * 0.5f)};
-
-			float Min;
-			float Max;
-
 			// Initial rotation is the rotation of the foot that comes from animations. It must be taken
 			// into account so that, for example, if the foot is rotated 45 degrees in the animation
 			// and the limit angle is 25 degrees, the resulting foot rotation will still be 45 degrees.
 
-			if (Initial >= 0.0f)
-			{
-				Min = -Limit;
-				Max = FMath::Max(Initial, Limit);
-			}
-			else
-			{
-				Min = FMath::Min(Initial, -Limit);
-				Max = Limit;
-			}
+			const auto MinAngle{FMath::Min3(CurrentAngle, LimitAngle.Min, LimitAngle.Max)};
+			const auto MaxAngle{FMath::Max3(CurrentAngle, LimitAngle.Min, LimitAngle.Max)};
 
-			return FMath::Clamp(Target, Min, Max);
+			return FMath::Clamp(TargetAngle, MinAngle, MaxAngle);
 		}
 	};
 
-	const auto NewSwingY{ApplyConstraint(UE_REAL_TO_FLOAT(InitialSwing.Y), UE_REAL_TO_FLOAT(TargetSwing.Y), Swing2LimitAngle)};
-	const auto NewSwingZ{ApplyConstraint(UE_REAL_TO_FLOAT(InitialSwing.Z), UE_REAL_TO_FLOAT(TargetSwing.Z), Swing1LimitAngle)};
-
-	const FQuat NewSwing{
-		0.0f, NewSwingY, NewSwingZ,
-		FMath::Sign(TargetSwing.W) * FMath::Sqrt(FMath::Max(0.0f, 1.0f - FMath::Square(NewSwingY) - FMath::Square(NewSwingZ)))
+	const auto FinalPitchAngleCalfSpace{
+		ConstraintTargetAngle(UE_REAL_TO_FLOAT(CurrentRotationCalfSpace.Pitch),
+		                      UE_REAL_TO_FLOAT(TargetRotationCalfSpace.Pitch),
+		                      Swing2LimitAngle)
 	};
 
-	// Limit twist.
-
-	const auto NewTwistX{ApplyConstraint(UE_REAL_TO_FLOAT(InitialTwist.X), UE_REAL_TO_FLOAT(TargetTwist.X), TwistLimitAngle)};
-
-	const FQuat NewTwist{
-		NewTwistX, 0.0f, 0.0f,
-		FMath::Sign(TargetTwist.W) * FMath::Sqrt(FMath::Max(0.0f, 1.0f - FMath::Square(NewTwistX)))
+	const auto FinalYawAngleCalfSpace{
+		ConstraintTargetAngle(UE_REAL_TO_FLOAT(CurrentRotationCalfSpace.Yaw),
+		                      UE_REAL_TO_FLOAT(TargetRotationCalfSpace.Yaw),
+		                      Swing1LimitAngle)
 	};
 
-	// Convert the new local offset back to a global offset.
+	const auto FinalRollAngleCalfSpace{
+		ConstraintTargetAngle(UE_REAL_TO_FLOAT(CurrentRotationCalfSpace.Roll),
+		                      UE_REAL_TO_FLOAT(TargetRotationCalfSpace.Roll),
+		                      TwistLimitAngle)
+	};
 
-	const auto NewLocalRotation{NewSwing * NewTwist};
+	const auto FinalRotationCalfSpace{FRotator{FinalPitchAngleCalfSpace, FinalYawAngleCalfSpace, FinalRollAngleCalfSpace}.Quaternion()};
 
-	FootRotation = CalfRotation * NewLocalRotation * LimitOffset.Inverse();
+	// Convert the new calf space foot rotation back to the global space.
+
+	FootRotation = CalfRotation * (FinalRotationCalfSpace * FootInitialRotationCalfSpace);
 	FootRotation.Normalize();
 }
